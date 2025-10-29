@@ -35,6 +35,7 @@ ENV/
 
 # Output files
 output/
+test_output/
 *.log
 
 # OS
