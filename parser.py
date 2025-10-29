@@ -97,52 +97,103 @@ def parse_decision_detail(html_content: str) -> Dict[str, any]:
     """
     soup = BeautifulSoup(html_content, 'html.parser')
 
-    # 실제 페이지 구조에 맞게 수정 필요
+    # HTML 구조:
+    # <div class="rst_result_view">
+    #   <div class="rst_titleW">
+    #     <u class="rl_btn">결정유형</u>
+    #     <h3><i>결정번호</i> 제목</h3>
+    #     <dd>언론사  발행인 ...</dd>
+    #   </div>
+    #   <div class="rst_contW">
+    #     <ul>
+    #       <li><h3>주 문</h3><p>...</p></li>
+    #       <li><h3>이 유</h3><p>...</p></li>
+    #       <li><h3>적용 조항</h3><p>...</p></li>
+    #     </ul>
+    #   </div>
+    # </div>
+
     detail = {
         'title': '',
         'decision_no': '',
-        'decision_date': '',
+        'decision_type': '',
         'newspaper': '',
-        'article_date': '',
-        'content': '',
-        'decision': '',
-        'reason': '',
+        'publisher': '',
+        'decision_text': '',      # 주문
+        'reason': '',             # 이유
+        'applied_rules': '',      # 적용 조항
+        'full_content': '',       # 전체 내용
     }
 
-    # 제목 추출 (예시)
-    title_elem = soup.find('h1') or soup.find('h2') or soup.find('title')
-    if title_elem:
-        detail['title'] = title_elem.get_text(strip=True)
+    # 메인 컨테이너 찾기
+    result_view = soup.find('div', class_='rst_result_view')
+    if not result_view:
+        return detail
 
-    # 본문 내용 추출 (예시)
-    # 실제 HTML 구조를 확인하여 적절한 선택자 사용
-    content_area = soup.find('div', class_='content') or soup.find('div', id='content')
+    # 1. 제목 영역 파싱 (rst_titleW)
+    title_area = result_view.find('div', class_='rst_titleW')
+    if title_area:
+        # 결정 유형 추출 (u.rl_btn)
+        decision_type_elem = title_area.find('u', class_='rl_btn')
+        if decision_type_elem:
+            detail['decision_type'] = decision_type_elem.get_text(strip=True)
+
+        # 제목 및 결정번호 추출 (h3 > i)
+        h3_elem = title_area.find('h3', class_='type01')
+        if h3_elem:
+            # 결정번호는 <i> 태그 안에
+            decision_no_elem = h3_elem.find('i')
+            if decision_no_elem:
+                detail['decision_no'] = decision_no_elem.get_text(strip=True)
+                # <i> 태그를 제거하고 나머지 텍스트가 제목
+                decision_no_elem.extract()
+
+            # 제목 추출
+            detail['title'] = h3_elem.get_text(strip=True)
+
+        # 언론사 및 발행인 추출 (dd)
+        dd_elem = title_area.find('dd')
+        if dd_elem:
+            dd_text = dd_elem.get_text(strip=True)
+            # "중부매일      발행인  한  인  섭" 형태
+            # 언론사와 발행인을 분리
+            parts = dd_text.split('발행인')
+            if len(parts) >= 1:
+                detail['newspaper'] = parts[0].strip()
+            if len(parts) >= 2:
+                detail['publisher'] = '발행인 ' + parts[1].strip()
+
+    # 2. 본문 영역 파싱 (rst_contW)
+    content_area = result_view.find('div', class_='rst_contW')
     if content_area:
-        detail['content'] = content_area.get_text(strip=True)
+        # ul > li 구조에서 각 섹션 추출
+        list_items = content_area.find_all('li')
 
-    # 테이블 형태의 정보 추출 (예시)
-    tables = soup.find_all('table')
-    for table in tables:
-        rows = table.find_all('tr')
-        for row in rows:
-            cells = row.find_all(['th', 'td'])
-            if len(cells) >= 2:
-                key = cells[0].get_text(strip=True)
-                value = cells[1].get_text(strip=True)
+        for item in list_items:
+            # 섹션 제목 (h3)
+            section_title_elem = item.find('h3', class_='type01')
+            if not section_title_elem:
+                continue
 
-                # 키워드 매칭
-                if '결정번호' in key or '의결번호' in key:
-                    detail['decision_no'] = value
-                elif '결정일' in key or '의결일' in key:
-                    detail['decision_date'] = value
-                elif '신문' in key or '언론사' in key:
-                    detail['newspaper'] = value
-                elif '기사일' in key or '보도일' in key:
-                    detail['article_date'] = value
-                elif '결정내용' in key or '의결내용' in key:
-                    detail['decision'] = value
-                elif '사유' in key or '이유' in key:
-                    detail['reason'] = value
+            section_title = section_title_elem.get_text(strip=True)
+
+            # 섹션 내용 (p)
+            section_content_elem = item.find('p')
+            if not section_content_elem:
+                continue
+
+            section_content = section_content_elem.get_text(strip=True)
+
+            # 섹션별로 분류
+            if '주문' in section_title or '주 문' in section_title:
+                detail['decision_text'] = section_content
+            elif '이유' in section_title or '이 유' in section_title:
+                detail['reason'] = section_content
+            elif '적용' in section_title or '조항' in section_title:
+                detail['applied_rules'] = section_content
+
+        # 전체 본문 내용도 저장
+        detail['full_content'] = content_area.get_text(separator='\n', strip=True)
 
     return detail
 

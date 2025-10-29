@@ -53,36 +53,46 @@ def create_decision_markdown(decision_data: Dict[str, any]) -> str:
     if decision_data.get('decision_no'):
         md_content.append(f"- **결정번호**: {decision_data['decision_no']}")
 
-    if decision_data.get('decision_date'):
-        md_content.append(f"- **결정일**: {decision_data['decision_date']}")
+    if decision_data.get('decision_type'):
+        md_content.append(f"- **결정유형**: {decision_data['decision_type']}")
 
     if decision_data.get('newspaper'):
         md_content.append(f"- **언론사**: {decision_data['newspaper']}")
 
-    if decision_data.get('article_date'):
-        md_content.append(f"- **기사일자**: {decision_data['article_date']}")
+    if decision_data.get('publisher'):
+        md_content.append(f"- **발행인**: {decision_data['publisher']}")
 
     if decision_data.get('url'):
         md_content.append(f"- **원문 URL**: {decision_data['url']}")
 
     md_content.append("")  # 빈 줄
 
-    # 결정 내용
-    if decision_data.get('decision'):
-        md_content.append("## 결정 내용\n")
-        md_content.append(decision_data['decision'])
+    # 주문 (결정 내용)
+    if decision_data.get('decision_text'):
+        md_content.append("## 주문\n")
+        md_content.append(decision_data['decision_text'])
         md_content.append("")
 
-    # 사유
+    # 이유 (결정 사유)
     if decision_data.get('reason'):
-        md_content.append("## 결정 사유\n")
+        md_content.append("## 이유\n")
         md_content.append(decision_data['reason'])
         md_content.append("")
 
-    # 전체 내용
-    if decision_data.get('content'):
-        md_content.append("## 상세 내용\n")
-        md_content.append(decision_data['content'])
+    # 적용 조항
+    if decision_data.get('applied_rules'):
+        md_content.append("## 적용 조항\n")
+        md_content.append(decision_data['applied_rules'])
+        md_content.append("")
+
+    # 전체 내용 (백업용, 위 섹션들이 없을 경우)
+    if decision_data.get('full_content') and not (
+        decision_data.get('decision_text') or
+        decision_data.get('reason') or
+        decision_data.get('applied_rules')
+    ):
+        md_content.append("## 전체 내용\n")
+        md_content.append(decision_data['full_content'])
         md_content.append("")
 
     # 푸터
