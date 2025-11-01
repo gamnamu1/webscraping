@@ -1,0 +1,228 @@
+"""
+Selenium 기반 웹 스크레이퍼 (URL 직접 지정 방식)
+JavaScript 동적 로딩을 처리하고 EUC-KR 인코딩 문제를 해결합니다.
+
+[수정 사항]
+- 월별 목록 페이지 URL을 직접 받아서 처리
+- URL 파라미터 방식 대신 사용자 제공 URL 직접 사용
+"""
+
+import time
+import logging
+from typing import List, Dict, Optional
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
+
+import config
+
+
+class IkpecScraper:
+    """신문윤리위원회 웹사이트 스크레이퍼"""
+
+    def __init__(self, headless: bool = True):
+        """
+        스크레이퍼 초기화
+
+        Args:
+            headless: True일 경우 브라우저를 백그라운드에서 실행
+        """
+        self.headless = headless
+        self.driver = None
+        self.logger = logging.getLogger(__name__)
+
+    def setup_driver(self):
+        """Selenium WebDriver 설정"""
+        chrome_options = Options()
+
+        if self.headless:
+            chrome_options.add_argument('--headless')
+
+        # 기타 옵션
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+
+        # User-Agent 설정 (봇 차단 방지)
+        chrome_options.add_argument(
+            'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/120.0.0.0 Safari/537.36'
+        )
+
+        # 인코딩 관련 설정
+        chrome_options.add_argument('--lang=ko-KR')
+        chrome_options.add_experimental_option('prefs', {
+            'intl.accept_languages': 'ko-KR,ko,en-US,en'
+        })
+
+        # ChromeDriver 자동 설치 및 설정
+        service = Service("/usr/local/bin/chromedriver")
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        self.driver.implicitly_wait(config.SELENIUM_TIMEOUT)
+
+        self.logger.info("WebDriver 설정 완료")
+
+    def close_driver(self):
+        """WebDriver 종료"""
+        if self.driver:
+            self.driver.quit()
+            self.logger.info("WebDriver 종료")
+
+    def get_page_source(self, url: str, wait_time: float = 2.0) -> str:
+        """
+        URL에 접근하여 페이지 소스를 가져옵니다.
+
+        Args:
+            url: 접근할 URL
+            wait_time: 페이지 로딩 후 대기 시간 (JavaScript 실행 대기)
+
+        Returns:
+            페이지의 HTML 소스
+        """
+        self.logger.info(f"페이지 접근: {url}")
+        self.driver.get(url)
+
+        # JavaScript 렌더링 대기
+        time.sleep(wait_time)
+
+        # 페이지 소스 반환
+        return self.driver.page_source
+
+    def get_decision_links_from_url(self, url: str, year: int, month: int) -> List[Dict[str, str]]:
+        """
+        지정된 URL에서 개별 심의 링크를 추출합니다.
+
+        Args:
+            url: 월별 목록 페이지 URL
+            year: 연도 (로깅용)
+            month: 월 (로깅용)
+
+        Returns:
+            심의 링크 정보 리스트
+        """
+        self.logger.info(f"{year}년 {month}월 심의 목록 추출 시작")
+        self.logger.info(f"접근 URL: {url}")
+        
+        self.driver.get(url)
+
+        # 페이지 로딩 대기
+        time.sleep(3)
+
+        decisions = []
+
+        try:
+            # 모든 링크 중 sub2_1_1.asp를 포함한 링크 찾기
+            links = self.driver.find_elements(By.TAG_NAME, 'a')
+
+            for link in links:
+                href = link.get_attribute('href')
+                if href and 'sub2_1_1.asp' in href:
+                    text = link.text.strip()
+                    if text:  # 텍스트가 있는 경우만
+                        decisions.append({
+                            'title': text,
+                            'url': href,
+                        })
+
+            self.logger.info(f"{len(decisions)}건의 심의 링크 발견")
+            
+            # 발견된 링크의 샘플 출력 (처음 3개)
+            if decisions:
+                self.logger.info(f"발견된 링크 샘플 (처음 3개):")
+                for i, decision in enumerate(decisions[:3], 1):
+                    self.logger.info(f"  {i}. {decision['title'][:50]}...")
+
+        except Exception as e:
+            self.logger.error(f"링크 추출 중 오류: {e}")
+
+        return decisions
+
+    def get_decision_detail(self, url: str) -> str:
+        """
+        개별 심의 페이지의 상세 내용을 가져옵니다.
+
+        Args:
+            url: 심의 페이지 URL
+
+        Returns:
+            페이지 HTML 소스
+        """
+        return self.get_page_source(url, wait_time=2.0)
+
+    def extract_text_from_current_page(self) -> str:
+        """
+        현재 페이지의 모든 텍스트를 추출합니다.
+
+        Returns:
+            추출된 텍스트
+        """
+        try:
+            # body 태그에서 텍스트 추출
+            body = self.driver.find_element(By.TAG_NAME, 'body')
+            return body.text
+        except Exception as e:
+            self.logger.error(f"텍스트 추출 중 오류: {e}")
+            return ""
+
+    def wait_for_element(self, by: By, value: str, timeout: int = None) -> bool:
+        """
+        특정 요소가 로딩될 때까지 대기합니다.
+
+        Args:
+            by: 검색 방법 (By.ID, By.CLASS_NAME 등)
+            value: 검색 값
+            timeout: 대기 시간 (초)
+
+        Returns:
+            요소 발견 여부
+        """
+        if timeout is None:
+            timeout = config.SELENIUM_TIMEOUT
+
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((by, value))
+            )
+            return True
+        except TimeoutException:
+            self.logger.warning(f"요소를 찾을 수 없음: {by}={value}")
+            return False
+
+    def scroll_to_bottom(self, pause_time: float = 0.5):
+        """
+        페이지를 아래로 스크롤합니다. (동적 로딩 콘텐츠 대응)
+
+        Args:
+            pause_time: 스크롤 간 대기 시간
+        """
+        last_height = self.driver.execute_script("return document.body.scrollHeight")
+
+        while True:
+            # 스크롤 다운
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(pause_time)
+
+            # 새로운 높이 계산
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+
+            # 더 이상 스크롤할 수 없으면 종료
+            if new_height == last_height:
+                break
+
+            last_height = new_height
+
+    def __enter__(self):
+        """컨텍스트 매니저 진입"""
+        self.setup_driver()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """컨텍스트 매니저 종료"""
+        self.close_driver()
